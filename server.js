@@ -24,8 +24,9 @@ db.exec(`
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-const SMMCOST_API = "https://smmcost.com/api";
-const SERVICE_ID = 3831;
+// SMMCost API v2
+const SMMCOST_API = "https://smmcost.com/api/v2";
+const SERVICE_ID = 3831; // ⚠️ Confirm this is the correct Twitch Followers service ID via the services endpoint
 const MAX_PER_ORDER = 1000;
 const POLL_INTERVAL = 15000;
 
