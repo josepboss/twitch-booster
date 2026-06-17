@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Twitch Booster</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0e0e14;--surface:#16161f;--border:#1e1e2e;
+    --purple:#9146ff;--green:#4ade80;--red:#f87171;--yellow:#fbbf24;
+    --text:#e2e8f0;--muted:#64748b;--sub:#94a3b8;
+  }
+  body{background:var(--bg);color:var(--text);font-family:'Inter','Segoe UI',sans-serif;min-height:100vh;padding:32px 16px}
+  h1{font-size:26px;font-weight:800;color:#f1f5f9}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--purple);display:inline-block;margin-right:8px}
+  .eyebrow{font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--purple);font-weight:700}
+  .sub{font-size:12px;color:var(--muted);margin-top:4px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:14px}
+  label.field-label{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-weight:600;display:block;margin-bottom:8px}
+  input,textarea,select{width:100%;background:#0e0e14;border:1px solid #2d2d3f;border-radius:7px;padding:10px 14px;color:var(--text);font-size:14px;outline:none;font-family:inherit}
+  textarea{font-family:monospace;font-size:12px;resize:vertical}
+  select{cursor:pointer;font-weight:700;font-size:15px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .span2{grid-column:1/-1}
+  .btn{border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;padding:12px 20px;transition:.15s}
+  .btn-primary{background:linear-gradient(135deg,#9146ff,#6441a5);color:#fff;flex:1}
+  .btn-primary:disabled{background:#2d2d3f;color:var(--muted);cursor:not-allowed}
+  .btn-stop{background:var(--red);color:#fff}
+  .btn-stop:disabled{background:#1e1e2e;color:var(--muted);cursor:not-allowed}
+  .btn-sm{font-size:11px;padding:3px 10px;background:none;border:1px solid #2d2d3f;border-radius:5px;color:var(--muted);cursor:pointer}
+  .btn-danger{color:var(--red)}
+  .row{display:flex;gap:10px;align-items:center}
+  /* Tabs */
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:20px}
+  .tab{padding:9px 22px;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);font-weight:500;font-size:13px;cursor:pointer;transition:.15s}
+  .tab.active{border-bottom-color:var(--purple);color:var(--purple);font-weight:700}
+  /* Breakdown */
+  .breakdown{background:#0e0e14;border:1px solid #1e2030;border-radius:7px;padding:12px 14px;margin-top:14px}
+  .breakdown-row{display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px}
+  .val{color:var(--purple);font-weight:700}
+  /* Progress cards */
+  .prog-cards{display:flex;flex-wrap:wrap;gap:10px}
+  .prog-card{background:#0e0e14;border-radius:8px;padding:10px 14px;min-width:150px;border:1px solid transparent}
+  .prog-bar-bg{height:4px;background:#1e1e2e;border-radius:2px;overflow:hidden;margin:6px 0}
+  .prog-bar{height:100%;border-radius:2px;transition:width .5s}
+  /* Log */
+  .log-box{height:260px;overflow-y:auto;font-family:monospace;font-size:12px}
+  .log-line{display:flex;gap:12px;padding:3px 0}
+  .log-ts{color:#334155;flex-shrink:0}
+  /* Stats */
+  .stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}
+  .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px}
+  .stat-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+  .stat-val{font-size:26px;font-weight:800;color:var(--purple)}
+  .followers-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin-bottom:14px}
+  .followers-val{font-size:32px;font-weight:800;color:var(--green)}
+  /* Table */
+  .tbl-wrap{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  table{width:100%;border-collapse:collapse}
+  th{padding:10px 16px;text-align:left;font-size:11px;color:var(--muted);font-weight:600;letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid var(--border)}
+  td{padding:10px 16px;border-bottom:1px solid var(--border);font-size:13px}
+  tr:last-child td{border-bottom:none}
+  tr:nth-child(even){background:#0e0e1444}
+  .badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px}
+  .empty{padding:40px;text-align:center;color:#334155}
+  .filter-row{display:flex;gap:10px;margin-bottom:14px}
+  .filter-row input{flex:1;font-size:13px;padding:9px 14px}
+</style>
+</head>
+<body>
+
+<div style="max-width:900px;margin:0 auto">
+
+  <!-- Header -->
+  <div style="margin-bottom:24px">
+    <div style="display:flex;align-items:center;margin-bottom:4px">
+      <span class="dot"></span>
+      <span class="eyebrow">Twitch Booster</span>
+    </div>
+    <h1>Follower Automation</h1>
+    <p class="sub">SMMCost · Service #3831 · 1000/order max · Sequential batching</p>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('boost')">Boost</button>
+    <button class="tab" id="tab-history" onclick="showTab('history')">History</button>
+  </div>
+
+  <!-- BOOST TAB -->
+  <div id="pane-boost">
+    <div class="card span2">
+      <label class="field-label">SMMCost API Key</label>
+      <input type="password" id="apiKey" placeholder="Your API key..."/>
+    </div>
+
+    <div class="grid2" style="margin-top:14px">
+      <div class="card">
+        <label class="field-label">Accounts List</label>
+        <p style="font-size:11px;color:#475569;margin-bottom:8px">username:password:token… (one per line)</p>
+        <textarea id="accounts" rows="8" placeholder="cotxl87:UV0F6NX...\njane123:pass:token..."></textarea>
+      </div>
+
+      <div class="card">
+        <label class="field-label">Followers per Account</label>
+        <select id="quantity">
+          <option value="1000">1,000 followers — 1 order</option>
+          <option value="2000">2,000 followers — 2 orders</option>
+          <option value="3000">3,000 followers — 3 orders</option>
+          <option value="5000">5,000 followers — 5 orders</option>
+          <option value="10000">10,000 followers — 10 orders</option>
+          <option value="15000">15,000 followers — 15 orders</option>
+          <option value="20000">20,000 followers — 20 orders</option>
+          <option value="25000">25,000 followers — 25 orders</option>
+          <option value="30000">30,000 followers — 30 orders</option>
+          <option value="35000">35,000 followers — 35 orders</option>
+          <option value="40000">40,000 followers — 40 orders</option>
+          <option value="45000">45,000 followers — 45 orders</option>
+          <option value="50000">50,000 followers — 50 orders</option>
+          <option value="55000">55,000 followers — 55 orders</option>
+          <option value="60000">60,000 followers — 60 orders</option>
+          <option value="65000">65,000 followers — 65 orders</option>
+          <option value="70000">70,000 followers — 70 orders</option>
+        </select>
+
+        <div class="breakdown">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Order breakdown</div>
+          <div class="breakdown-row"><span style="color:var(--sub)">Batches/account</span><span class="val" id="bd-batches">1×</span></div>
+          <div class="breakdown-row"><span style="color:var(--sub)">Per batch</span><span class="val">1,000 followers</span></div>
+          <div class="breakdown-row"><span style="color:var(--sub)">Accounts</span><span class="val" id="bd-accounts">0</span></div>
+          <div class="breakdown-row"><span style="color:var(--sub)">Total orders</span><span style="color:var(--text);font-weight:700" id="bd-total">0</span></div>
+        </div>
+
+        <div class="row" style="margin-top:14px">
+          <button class="btn btn-primary" id="btnStart" onclick="startBoost()">▶ Start</button>
+          <button class="btn btn-stop" id="btnStop" disabled onclick="stopBoost()">Stop</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Progress -->
+    <div class="card" id="progressSection" style="display:none">
+      <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:12px">Account Progress</div>
+      <div class="prog-cards" id="progCards"></div>
+    </div>
+
+    <!-- Log -->
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <span style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-weight:600;flex:1">Live Log</span>
+        <button class="btn-sm" onclick="clearLog()">Clear</button>
+      </div>
+      <div class="log-box" id="logBox">
+        <div style="color:#2d2d3f;padding:8px">Logs will appear here...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HISTORY TAB -->
+  <div id="pane-history" style="display:none">
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-label">Total Runs</div><div class="stat-val" id="st-total">—</div></div>
+      <div class="stat-card"><div class="stat-label">Successful</div><div class="stat-val" id="st-done">—</div></div>
+      <div class="stat-card"><div class="stat-label">Unique Accounts</div><div class="stat-val" id="st-unique">—</div></div>
+    </div>
+    <div class="followers-card">
+      <div class="stat-label">Total Followers Delivered</div>
+      <div class="followers-val" id="st-followers">—</div>
+    </div>
+    <div class="filter-row">
+      <input type="text" id="histFilter" placeholder="Filter by username..." oninput="renderHistory()"/>
+      <button class="btn btn-sm btn-danger" onclick="clearHistory()">Clear All</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Username</th><th>Quantity</th><th>Batches</th><th>Status</th><th>Started</th><th>Finished</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+      <div class="empty" id="histEmpty" style="display:none">No history yet — run a boost to see records here.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let evtSource = null;
+let historyData = [];
+
+// ── Tabs ────────────────────────────────────────────────────
+function showTab(tab) {
+  document.getElementById('pane-boost').style.display = tab === 'boost' ? '' : 'none';
+  document.getElementById('pane-history').style.display = tab === 'history' ? '' : 'none';
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', (i===0) === (tab==='boost')));
+  if (tab === 'history') loadHistory();
+}
+
+// ── Breakdown update ─────────────────────────────────────────
+function updateBreakdown() {
+  const qty = parseInt(document.getElementById('quantity').value);
+  const accounts = parseAccounts(document.getElementById('accounts').value);
+  const batches = qty / 1000;
+  document.getElementById('bd-batches').textContent = batches + '×';
+  document.getElementById('bd-accounts').textContent = accounts.length;
+  document.getElementById('bd-total').textContent = batches * accounts.length;
+}
+document.getElementById('quantity').addEventListener('change', updateBreakdown);
+document.getElementById('accounts').addEventListener('input', updateBreakdown);
+
+function parseAccounts(raw) {
+  return raw.trim().split('\n').map(l => l.trim().split(':')[0]).filter(Boolean);
+}
+
+// ── Log ──────────────────────────────────────────────────────
+const logColors = { info:'#94a3b8', success:'#4ade80', error:'#f87171', warn:'#fbbf24', head:'#a78bfa' };
+function addLog(msg, level='info') {
+  const box = document.getElementById('logBox');
+  if (box.children.length === 1 && box.children[0].style.color === '#2d2d3f') box.innerHTML = '';
+  const ts = new Date().toLocaleTimeString();
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  line.innerHTML = `<span class="log-ts">${ts}</span><span style="color:${logColors[level]||'#94a3b8'}">${msg}</span>`;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+function clearLog() {
+  document.getElementById('logBox').innerHTML = '<div style="color:#2d2d3f;padding:8px">Logs will appear here...</div>';
+}
+
+// ── Progress cards ────────────────────────────────────────────
+const progState = {};
+function initProgCard(username, batches) {
+  progState[username] = { done: 0, total: batches, status: 'running' };
+  document.getElementById('progressSection').style.display = '';
+  const cards = document.getElementById('progCards');
+  const card = document.createElement('div');
+  card.className = 'prog-card';
+  card.id = 'pc-' + username;
+  card.style.border = '1px solid #9146ff33';
+  card.innerHTML = `
+    <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px">${username}</div>
+    <div class="prog-bar-bg"><div class="prog-bar" id="pb-${username}" style="width:0%;background:#9146ff"></div></div>
+    <div style="font-size:11px;color:#9146ff" id="pl-${username}">0/${batches} batches · 0%</div>`;
+  cards.appendChild(card);
+}
+function updateProgCard(username, done, total, status) {
+  const pct = total ? Math.round(done/total*100) : 0;
+  const col = status==='done'?'#4ade80':status==='error'?'#f87171':'#9146ff';
+  const bar = document.getElementById('pb-'+username);
+  const lbl = document.getElementById('pl-'+username);
+  const card = document.getElementById('pc-'+username);
+  if (bar) bar.style.cssText = `width:${pct}%;background:${col}`;
+  if (lbl) { lbl.style.color = col; lbl.textContent = `${done}/${total} batches · ${pct}%`; }
+  if (card) card.style.border = `1px solid ${col}33`;
+}
+
+// ── Boost ─────────────────────────────────────────────────────
+function startBoost() {
+  const apiKey = document.getElementById('apiKey').value.trim();
+  const accountsRaw = document.getElementById('accounts').value.trim();
+  const quantity = document.getElementById('quantity').value;
+  const accounts = parseAccounts(accountsRaw);
+
+  if (!apiKey) { addLog('Enter your SMMCost API key first.', 'error'); return; }
+  if (!accounts.length) { addLog('No valid accounts found.', 'error'); return; }
+
+  clearLog();
+  document.getElementById('progCards').innerHTML = '';
+  document.getElementById('progressSection').style.display = 'none';
+  document.getElementById('btnStart').disabled = true;
+  document.getElementById('btnStop').disabled = false;
+
+  const params = new URLSearchParams({ apiKey, accounts: accounts.join(','), quantity });
+  evtSource = new EventSource(`/api/boost?${params}`);
+
+  evtSource.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    if (d.type === 'start') {
+      addLog(`Starting: ${d.total} account(s) × ${d.qty} followers`, 'info');
+    } else if (d.type === 'account_start') {
+      addLog(`━━━ Processing: ${d.username} ━━━`, 'head');
+      initProgCard(d.username, d.batches);
+    } else if (d.type === 'log') {
+      addLog(d.msg, d.level);
+    } else if (d.type === 'batch_done') {
+      updateProgCard(d.username, d.batchesDone, d.totalBatches, 'running');
+    } else if (d.type === 'account_done') {
+      updateProgCard(d.username, d.batchesDone, d.totalBatches, d.status);
+    } else if (d.type === 'all_done') {
+      addLog('🎉 All accounts processed!', 'success');
+      evtSource.close();
+      document.getElementById('btnStart').disabled = false;
+      document.getElementById('btnStop').disabled = true;
+    }
+  };
+
+  evtSource.onerror = () => {
+    addLog('Connection lost.', 'error');
+    evtSource.close();
+    document.getElementById('btnStart').disabled = false;
+    document.getElementById('btnStop').disabled = true;
+  };
+}
+
+function stopBoost() {
+  if (evtSource) { evtSource.close(); evtSource = null; }
+  addLog('⛔ Stopped.', 'warn');
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnStop').disabled = true;
+}
+
+// ── History ───────────────────────────────────────────────────
+async function loadHistory() {
+  const [hRes, sRes] = await Promise.all([fetch('/api/history'), fetch('/api/history/stats')]);
+  historyData = await hRes.json();
+  const stats = await sRes.json();
+  document.getElementById('st-total').textContent = stats.total.toLocaleString();
+  document.getElementById('st-done').textContent = stats.done.toLocaleString();
+  document.getElementById('st-unique').textContent = stats.unique.toLocaleString();
+  document.getElementById('st-followers').textContent = stats.followers.toLocaleString();
+  renderHistory();
+}
+
+function renderHistory() {
+  const filter = document.getElementById('histFilter').value.toLowerCase();
+  const rows = filter ? historyData.filter(h => h.username.toLowerCase().includes(filter)) : historyData;
+  const tbody = document.getElementById('historyBody');
+  const empty = document.getElementById('histEmpty');
+  tbody.innerHTML = '';
+  if (!rows.length) { empty.style.display = ''; return; }
+  empty.style.display = 'none';
+  rows.forEach(h => {
+    const badgeMap = { done:['#4ade80','✓ Done'], error:['#f87171','✗ Error'], stopped:['#fbbf24','⛔ Stopped'] };
+    const [col, label] = badgeMap[h.status] || ['#64748b', h.status];
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td style="font-family:monospace;font-weight:700">${h.username}</td>
+      <td style="color:var(--purple);font-weight:700">${parseInt(h.quantity).toLocaleString()}</td>
+      <td style="color:var(--sub)">${h.batches_done}/${h.total_batches}</td>
+      <td><span class="badge" style="color:${col};background:${col}22">${label}</span></td>
+      <td style="color:var(--muted)">${new Date(h.started_at).toLocaleString()}</td>
+      <td style="color:var(--muted)">${new Date(h.finished_at).toLocaleString()}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+async function clearHistory() {
+  if (!confirm('Clear all history?')) return;
+  await fetch('/api/history', { method: 'DELETE' });
+  historyData = [];
+  renderHistory();
+  document.getElementById('st-total').textContent = '0';
+  document.getElementById('st-done').textContent = '0';
+  document.getElementById('st-followers').textContent = '0';
+  document.getElementById('st-unique').textContent = '0';
+}
+
+updateBreakdown();
+</script>
+</body>
+</html>
