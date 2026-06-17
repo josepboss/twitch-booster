@@ -30,11 +30,15 @@ const SERVICE_ID = 3831; // ⚠️ Confirm this is the correct Twitch Followers 
 const MAX_PER_ORDER = 1000;
 const POLL_INTERVAL = 15000;
 
-// ── SSE helper ──────────────────────────────────────────────
-function sendEvent(res, data) {
-  if (!res.writableEnded) {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
-  }
+// ── SSE write queue (prevents interleaved writes from concurrent accounts) ──
+let sseWriteQueue = Promise.resolve();
+function writeToStream(res, data) {
+  if (res.writableEnded) return;
+  sseWriteQueue = sseWriteQueue.then(() => {
+    return new Promise((resolve) => {
+      res.write(`data: ${JSON.stringify(data)}\n\n`, resolve);
+    });
+  });
 }
 
 // ── SMMCost helpers ─────────────────────────────────────────
@@ -49,6 +53,83 @@ async function smmRequest(apiKey, params) {
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
+}
+
+// ── Process a single account (sequential batches) ────────────
+async function processAccount(res, apiKey, username, qty, batches, startedAt) {
+  writeToStream(res, { type: "account_start", username, batches });
+
+  let batchesDone = 0;
+  let accountStatus = "done";
+
+  for (let i = 1; i <= batches; i++) {
+    writeToStream(res, { type: "log", level: "info", msg: `[${username}] placing batch ${i}/${batches} (+${MAX_PER_ORDER} followers)` });
+
+    let order;
+    try {
+      order = await smmRequest(apiKey, {
+        action: "add",
+        service: SERVICE_ID,
+        link: `https://www.twitch.tv/${username}`,
+        quantity: MAX_PER_ORDER
+      });
+    } catch (e) {
+      writeToStream(res, { type: "log", level: "error", msg: `[${username}] batch ${i} — network error: ${e.message}` });
+      accountStatus = "error";
+      break;
+    }
+
+    if (order.error) {
+      writeToStream(res, { type: "log", level: "error", msg: `[${username}] batch ${i} — API error: ${order.error}` });
+      accountStatus = "error";
+      break;
+    }
+
+    const orderId = order.order;
+    writeToStream(res, { type: "log", level: "success", msg: `[${username}] batch ${i} — order #${orderId} placed, waiting...` });
+
+    // Poll until complete
+    let completed = false;
+    while (!completed) {
+      await sleep(POLL_INTERVAL);
+      let status;
+      try {
+        status = await smmRequest(apiKey, { action: "status", order: orderId });
+      } catch {
+        writeToStream(res, { type: "log", level: "warn", msg: `[${username}] batch ${i} — poll error, retrying...` });
+        continue;
+      }
+      const s = (status.status || "").toLowerCase();
+      writeToStream(res, { type: "log", level: "info", msg: `[${username}] batch ${i} — order #${orderId}: ${s}` });
+
+      if (s === "completed" || s === "partial") {
+        completed = true;
+      } else if (s === "cancelled" || s === "canceled") {
+        writeToStream(res, { type: "log", level: "error", msg: `[${username}] batch ${i} — order cancelled` });
+        accountStatus = "error";
+        completed = true;
+        break;
+      }
+    }
+
+    if (accountStatus === "error") break;
+
+    batchesDone = i;
+    writeToStream(res, { type: "batch_done", username, batchesDone, totalBatches: batches });
+    writeToStream(res, { type: "log", level: "success", msg: `[${username}] batch ${i}/${batches} ✓ completed` });
+  }
+
+  if (accountStatus === "done") {
+    writeToStream(res, { type: "log", level: "success", msg: `[${username}] ✅ all ${qty} followers done!` });
+  }
+
+  // Save to DB
+  db.prepare(`
+    INSERT INTO history (username, quantity, batches_done, total_batches, status, started_at, finished_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(username, qty, batchesDone, batches, accountStatus, startedAt, Date.now());
+
+  writeToStream(res, { type: "account_done", username, status: accountStatus, batchesDone, totalBatches: batches });
 }
 
 // ── Main boost route (SSE stream) ───────────────────────────
@@ -68,86 +149,20 @@ app.get("/api/boost", async (req, res) => {
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
-  sendEvent(res, { type: "start", total: usernames.length, qty });
+  // Reset write queue for this connection
+  sseWriteQueue = Promise.resolve();
 
-  for (const username of usernames) {
+  writeToStream(res, { type: "start", total: usernames.length, qty });
+
+  // Start all accounts concurrently
+  const promises = usernames.map(username => {
     const startedAt = Date.now();
-    sendEvent(res, { type: "account_start", username, batches });
+    return processAccount(res, apiKey, username, qty, batches, startedAt);
+  });
 
-    let batchesDone = 0;
-    let accountStatus = "done";
+  await Promise.all(promises);
 
-    for (let i = 1; i <= batches; i++) {
-      sendEvent(res, { type: "log", level: "info", msg: `[${username}] placing batch ${i}/${batches} (+${MAX_PER_ORDER} followers)` });
-
-      let order;
-      try {
-        order = await smmRequest(apiKey, {
-          action: "add",
-          service: SERVICE_ID,
-          link: `https://www.twitch.tv/${username}`,
-          quantity: MAX_PER_ORDER
-        });
-      } catch (e) {
-        sendEvent(res, { type: "log", level: "error", msg: `[${username}] batch ${i} — network error: ${e.message}` });
-        accountStatus = "error";
-        break;
-      }
-
-      if (order.error) {
-        sendEvent(res, { type: "log", level: "error", msg: `[${username}] batch ${i} — API error: ${order.error}` });
-        accountStatus = "error";
-        break;
-      }
-
-      const orderId = order.order;
-      sendEvent(res, { type: "log", level: "success", msg: `[${username}] batch ${i} — order #${orderId} placed, waiting...` });
-
-      // Poll until complete
-      let completed = false;
-      while (!completed) {
-        await sleep(POLL_INTERVAL);
-        let status;
-        try {
-          status = await smmRequest(apiKey, { action: "status", order: orderId });
-        } catch {
-          sendEvent(res, { type: "log", level: "warn", msg: `[${username}] batch ${i} — poll error, retrying...` });
-          continue;
-        }
-        const s = (status.status || "").toLowerCase();
-        sendEvent(res, { type: "log", level: "info", msg: `[${username}] batch ${i} — order #${orderId}: ${s}` });
-
-        if (s === "completed" || s === "partial") {
-          completed = true;
-        } else if (s === "cancelled" || s === "canceled") {
-          sendEvent(res, { type: "log", level: "error", msg: `[${username}] batch ${i} — order cancelled` });
-          accountStatus = "error";
-          completed = true;
-          break;
-        }
-      }
-
-      if (accountStatus === "error") break;
-
-      batchesDone = i;
-      sendEvent(res, { type: "batch_done", username, batchesDone, totalBatches: batches });
-      sendEvent(res, { type: "log", level: "success", msg: `[${username}] batch ${i}/${batches} ✓ completed` });
-    }
-
-    if (accountStatus === "done") {
-      sendEvent(res, { type: "log", level: "success", msg: `[${username}] ✅ all ${qty} followers done!` });
-    }
-
-    // Save to DB
-    db.prepare(`
-      INSERT INTO history (username, quantity, batches_done, total_batches, status, started_at, finished_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(username, qty, batchesDone, batches, accountStatus, startedAt, Date.now());
-
-    sendEvent(res, { type: "account_done", username, status: accountStatus, batchesDone, totalBatches: batches });
-  }
-
-  sendEvent(res, { type: "all_done" });
+  writeToStream(res, { type: "all_done" });
   res.end();
 });
 
