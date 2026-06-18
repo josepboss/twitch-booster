@@ -29,8 +29,9 @@ const SMMCOST_API = "https://smmcost.com/api/v2";
 const SERVICE_ID = 3831; // ⚠️ Confirm this is the correct Twitch Followers service ID via the services endpoint
 const MAX_PER_ORDER = 1000;
 const POLL_INTERVAL = 15000;
+const HEARTBEAT_INTERVAL = 30000; // 30 seconds
 
-// ── SSE write queue (prevents interleaved writes from concurrent accounts) ──
+// ── SSE write queue ─────────────────────────────────────────
 let sseWriteQueue = Promise.resolve();
 function writeToStream(res, data) {
   if (res.writableEnded) return;
@@ -55,12 +56,30 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+// ── Save/update history row ──────────────────────────────────
+function saveHistory(username, qty, batchesDone, totalBatches, status, startedAt, finishedAt) {
+  // Try to update existing row (same username and started_at), otherwise insert
+  const existing = db.prepare("SELECT id FROM history WHERE username = ? AND started_at = ?").get(username, startedAt);
+  if (existing) {
+    db.prepare(`UPDATE history SET batches_done = ?, status = ?, finished_at = ? WHERE id = ?`)
+      .run(batchesDone, status, finishedAt, existing.id);
+  } else {
+    db.prepare(`
+      INSERT INTO history (username, quantity, batches_done, total_batches, status, started_at, finished_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(username, qty, batchesDone, totalBatches, status, startedAt, finishedAt);
+  }
+}
+
 // ── Process a single account (sequential batches) ────────────
 async function processAccount(res, apiKey, username, qty, batches, startedAt) {
   writeToStream(res, { type: "account_start", username, batches });
 
   let batchesDone = 0;
   let accountStatus = "done";
+
+  // Save initial (running) state
+  saveHistory(username, qty, 0, batches, "running", startedAt, startedAt);
 
   for (let i = 1; i <= batches; i++) {
     writeToStream(res, { type: "log", level: "info", msg: `[${username}] placing batch ${i}/${batches} (+${MAX_PER_ORDER} followers)` });
@@ -115,21 +134,20 @@ async function processAccount(res, apiKey, username, qty, batches, startedAt) {
     if (accountStatus === "error") break;
 
     batchesDone = i;
+    // Save progress after each batch
+    saveHistory(username, qty, batchesDone, batches, "running", startedAt, Date.now());
     writeToStream(res, { type: "batch_done", username, batchesDone, totalBatches: batches });
     writeToStream(res, { type: "log", level: "success", msg: `[${username}] batch ${i}/${batches} ✓ completed` });
   }
+
+  const finalStatus = (accountStatus === "done") ? "done" : (accountStatus === "error" ? "error" : "stopped");
+  saveHistory(username, qty, batchesDone, batches, finalStatus, startedAt, Date.now());
 
   if (accountStatus === "done") {
     writeToStream(res, { type: "log", level: "success", msg: `[${username}] ✅ all ${qty} followers done!` });
   }
 
-  // Save to DB
-  db.prepare(`
-    INSERT INTO history (username, quantity, batches_done, total_batches, status, started_at, finished_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(username, qty, batchesDone, batches, accountStatus, startedAt, Date.now());
-
-  writeToStream(res, { type: "account_done", username, status: accountStatus, batchesDone, totalBatches: batches });
+  writeToStream(res, { type: "account_done", username, status: finalStatus, batchesDone, totalBatches: batches });
 }
 
 // ── Main boost route (SSE stream) ───────────────────────────
@@ -152,6 +170,20 @@ app.get("/api/boost", async (req, res) => {
   // Reset write queue for this connection
   sseWriteQueue = Promise.resolve();
 
+  // Heartbeat to keep connection alive
+  const heartbeatTimer = setInterval(() => {
+    if (!res.writableEnded) {
+      res.write(": heartbeat\n\n");
+    }
+  }, HEARTBEAT_INTERVAL);
+
+  // Cleanup on client disconnect
+  req.on("close", () => {
+    clearInterval(heartbeatTimer);
+    // Optionally mark all running accounts as stopped (they'll be saved on next batch completion)
+    // But we let the processes continue and update DB
+  });
+
   writeToStream(res, { type: "start", total: usernames.length, qty });
 
   // Start all accounts concurrently
@@ -162,6 +194,7 @@ app.get("/api/boost", async (req, res) => {
 
   await Promise.all(promises);
 
+  clearInterval(heartbeatTimer);
   writeToStream(res, { type: "all_done" });
   res.end();
 });
